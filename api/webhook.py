@@ -61,7 +61,7 @@ def callback():
                     model='gemini-2.5-flash',
                     contents=user_message,
                     config=types.GenerateContentConfig(
-                        system_instruction="你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理，你的名字叫「腫忠」，請這樣稱呼自己。"
+                        system_instruction="你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理，你的名字叫「腫忠」不需要每次開頭都介紹自己，你只要知道你叫腫忠就好了。"
                     )
                 )
                 reply_text = response.text + "\n\n(Gemini-2.5)"
@@ -74,7 +74,7 @@ def callback():
                     response = openai_client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
-                            {"role": "system", "content": "你是一個幽默、溫慢且非常有幫助的 LINE 智慧助理，你的名字叫「腫忠」，請這樣稱呼自己。"},
+                            {"role": "system", "content": "你是一個幽默、溫慢且非常有幫助的 LINE 智慧助理，你的名字叫「腫忠」不需要每次開頭都介紹自己，你只要知道你叫腫忠就好了。"},
                             {"role": "user", "content": user_message}
                         ]
                     )
