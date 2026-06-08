@@ -9,13 +9,12 @@ app = Flask(__name__)
 
 LINE_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 
-# 主力大腦 Gemini 優先初始化
-# 因為已經建立好環境變數，這裡直接初始化
-gemini_client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
+# 主要大腦 OpenAI 初始化（保留做備援）
+openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
 @app.route("/", methods=['GET'])
 def index():
-    return "LINE Bot Dual-Core Failover Service (Gemini Primary) is running!"
+    return "LINE Bot Dual-Core Failover Service (Gemini Primary Safe Mode) is running!"
 
 @app.route("/api/webhook", methods=['POST'])
 def callback():
@@ -48,34 +47,35 @@ def callback():
 
             reply_text = ""
 
-            # 【第一層：主要挑戰】優先呼叫 Google Gemini
+            # 【第一層：主要挑戰】優先呼叫 Google Gemini (移到這裡，安全防開機崩潰)
             try:
+                gemini_key = os.environ.get('GEMINI_API_KEY')
+                if not gemini_key:
+                    raise ValueError("環境變數中找不到 GEMINI_API_KEY")
+                
+                # 只有在這裡才正式啟動 Gemini 客戶端
+                gemini_client = genai.Client(api_key=gemini_key)
+                
                 response = gemini_client.models.generate_content(
                     model='gemini-2.5-flash',
                     contents=user_message,
                     config=types.GenerateContentConfig(
-                        system_instruction="你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理，你的名子叫「腫忠」。"
+                        system_instruction="你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理，你的名子叫「腫忠」，請這樣稱呼自己。"
                     )
                 )
-                # 成功拿回 Gemini 的回答，並在最下面新增主力模型標籤
+                # 成功拿回 Gemini 的回答
                 reply_text = response.text + "\n\n(Gemini-2.5)"
                 
             except Exception as gemini_error:
                 # 當 Gemini 額度滿了、或是 Google 鬧脾氣時，跳進這裡啟動 GPT 備援
                 print(f"Gemini 呼叫失敗: {str(gemini_error)}。自動切換至 GPT 備援...")
                 
-                # 第二層：自動救援】呼叫 OpenAI GPT (延後初始化，確保平時不浪費資源)
+                #【第二層：自動救援】呼叫 OpenAI GPT
                 try:
-                    openai_key = os.environ.get('OPENAI_API_KEY')
-                    if not openai_key:
-                        raise ValueError("環境變數中找不到 OPENAI_API_KEY")
-                        
-                    openai_client = OpenAI(api_key=openai_key)
-                    
                     response = openai_client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
-                            {"role": "system", "content": "你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理。"},
+                            {"role": "system", "content": "你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理，你的名子叫「腫忠」，請這樣稱呼自己。"},
                             {"role": "user", "content": user_message}
                         ]
                     )
