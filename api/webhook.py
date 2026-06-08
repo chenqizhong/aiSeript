@@ -27,7 +27,7 @@ def callback():
             # --- 🤖 關鍵過濾機制 (支援 Tag 標記) ---
             # 把所有可能的 Tag 寫法放進來 (注意後面都有加逗號，這才是正確的 Python Tuple 格式)
             # 這裡不分大小寫，包含你手打的完整名稱，或是 LINE 內建 Tag 產生的名稱
-            trigger_words = ("@AI","@ai","@腫忠AI機器人","@腫忠ai機器人", "@腫忠", "@腫忠AI", "@腫忠ai")
+            trigger_words = ("@Ai","@AI","@ai","@腫忠AI機器人","@腫忠ai機器人", "@腫忠", "@腫忠AI", "@腫忠ai")
             
             # 檢查訊息開頭是不是這些標記字串
             has_trigger = any(raw_message.lower().startswith(word) for word in trigger_words)
