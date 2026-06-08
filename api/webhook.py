@@ -30,7 +30,7 @@ def callback():
             raw_message = event['message']['text'].strip()
             
             # --- 🤖 關鍵過濾機制 (支援 Tag 標記) ---
-            trigger_words = ("@腫忠ai機器人", "@腫忠", "@腫忠ai")
+            trigger_words = ("@AI","@ai","@腫忠ai機器人","@腫忠Ai機器人","@腫忠AI機器人", "@腫忠", "@腫忠ai","@腫忠AI")
             has_trigger = any(raw_message.lower().startswith(word) for word in trigger_words)
             
             if not has_trigger:
