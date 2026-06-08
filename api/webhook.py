@@ -29,7 +29,7 @@ def callback():
             raw_message = event['message']['text'].strip()
             
             # --- 🤖 關鍵過濾機制 (支援大寫與多種 Tag 標記) ---
-            trigger_words = ("@ai", "@腫忠ai機器人", "@腫忠", "@腫忠ai")
+            trigger_words = ("@AI","@ai", "@腫忠ai機器人", "@腫忠", "@腫忠ai","@腫忠Ai")
             
             # 使用 .lower() 判斷，所以 trigger_words 只要放純小寫，大寫的 @AI 也能被精準捕捉
             has_trigger = any(raw_message.lower().startswith(word) for word in trigger_words)
@@ -59,7 +59,7 @@ def callback():
                     ]
                 )
                 # 成功拿回 GPT 的回答，並在最下面新增模型標籤
-                reply_text = response.choices[0].message.content + "\n\n(🧠 本訊息由 GPT 提供)"
+                reply_text = response.choices[0].message.content + "\n\n(本訊息採用 GPT 語言模型)"
                 
             except Exception as gpt_error:
                 # 🚨 當 GPT 免費流量滿了、扣款失敗或當機，會跳進這裡，自動啟動備援
@@ -82,7 +82,7 @@ def callback():
                         )
                     )
                     # 成功拿回 Gemini 的回答，並在最下面新增備援模型標籤
-                    reply_text = response.text + "\n\n(🤖 本訊息由 Gemini 備援系統提供)"
+                    reply_text = response.text + "\n\n(本訊採用 Gemini 備援語言模型)"
                     
                 except Exception as gemini_error:
                     # 萬一兩邊都一起出狀況的極端防錯
