@@ -9,9 +9,8 @@ app = Flask(__name__)
 
 LINE_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 
-# 同時初始化兩個 AI 客戶端
+# 主要大腦 OpenAI 初始化
 openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
-gemini_client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
 
 @app.route("/", methods=['GET'])
 def index():
@@ -29,8 +28,10 @@ def callback():
             reply_token = event['replyToken']
             raw_message = event['message']['text'].strip()
             
-            # --- 🤖 關鍵過濾機制 (支援 Tag 標記) ---
-            trigger_words = ("@AI","@ai","@腫忠ai機器人","@腫忠Ai機器人","@腫忠AI機器人", "@腫忠", "@腫忠ai","@腫忠AI")
+            # --- 🤖 關鍵過濾機制 (支援大寫與多種 Tag 標記) ---
+            trigger_words = ("@ai", "@腫忠ai機器人", "@腫忠", "@腫忠ai")
+            
+            # 使用 .lower() 判斷，所以 trigger_words 只要放純小寫，大寫的 @AI 也能被精準捕捉
             has_trigger = any(raw_message.lower().startswith(word) for word in trigger_words)
             
             if not has_trigger:
@@ -64,8 +65,15 @@ def callback():
                 # 🚨 當 GPT 免費流量滿了、扣款失敗或當機，會跳進這裡，自動啟動備援
                 print(f"GPT 呼叫失敗: {str(gpt_error)}。自動切換至 Gemini...")
                 
-                # 🛠️ 【第二層：自動救援】呼叫 Google Gemini
+                # 🛠️ 【第二層：自動救援】呼叫 Google Gemini (移到這裡初始化，防止 Vercel 啟動崩潰)
                 try:
+                    gemini_key = os.environ.get('GEMINI_API_KEY')
+                    if not gemini_key:
+                        raise ValueError("環境變數中找不到 GEMINI_API_KEY")
+                    
+                    # 在這裡才正式啟動 Gemini 客戶端
+                    gemini_client = genai.Client(api_key=gemini_key)
+                    
                     response = gemini_client.models.generate_content(
                         model='gemini-2.5-flash',
                         contents=user_message,
