@@ -9,12 +9,13 @@ app = Flask(__name__)
 
 LINE_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 
-# 主要大腦 OpenAI 初始化
-openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
+# 主力大腦 Gemini 優先初始化
+# 因為已經建立好環境變數，這裡直接初始化
+gemini_client = genai.Client(api_key=os.environ.get('GEMINI_API_KEY'))
 
 @app.route("/", methods=['GET'])
 def index():
-    return "LINE Bot Dual-Core Failover Service is running!"
+    return "LINE Bot Dual-Core Failover Service (Gemini Primary) is running!"
 
 @app.route("/api/webhook", methods=['POST'])
 def callback():
@@ -28,10 +29,8 @@ def callback():
             reply_token = event['replyToken']
             raw_message = event['message']['text'].strip()
             
-            # --- 🤖 關鍵過濾機制 (支援大寫與多種 Tag 標記) ---
-            trigger_words = ("@AI","@ai", "@腫忠ai機器人", "@腫忠", "@腫忠ai","@腫忠Ai")
-            
-            # 使用 .lower() 判斷，所以 trigger_words 只要放純小寫，大寫的 @AI 也能被精準捕捉
+            # --- 關鍵過濾機制 (支援大寫與多種 Tag 標記) ---
+            trigger_words = ("@ai", "@腫忠ai機器人", "@腫忠", "@腫忠ai")
             has_trigger = any(raw_message.lower().startswith(word) for word in trigger_words)
             
             if not has_trigger:
@@ -49,44 +48,43 @@ def callback():
 
             reply_text = ""
 
-            # 🚀 【第一層：主要挑戰】優先呼叫 OpenAI GPT
+            # 【第一層：主要挑戰】優先呼叫 Google Gemini
             try:
-                response = openai_client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": "你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理。"},
-                        {"role": "user", "content": user_message}
-                    ]
-                )
-                # 成功拿回 GPT 的回答，並在最下面新增模型標籤
-                reply_text = response.choices[0].message.content + "\n\n(本訊息採用 GPT 語言模型)"
-                
-            except Exception as gpt_error:
-                # 🚨 當 GPT 免費流量滿了、扣款失敗或當機，會跳進這裡，自動啟動備援
-                print(f"GPT 呼叫失敗: {str(gpt_error)}。自動切換至 Gemini...")
-                
-                # 🛠️ 【第二層：自動救援】呼叫 Google Gemini (移到這裡初始化，防止 Vercel 啟動崩潰)
-                try:
-                    gemini_key = os.environ.get('GEMINI_API_KEY')
-                    if not gemini_key:
-                        raise ValueError("環境變數中找不到 GEMINI_API_KEY")
-                    
-                    # 在這裡才正式啟動 Gemini 客戶端
-                    gemini_client = genai.Client(api_key=gemini_key)
-                    
-                    response = gemini_client.models.generate_content(
-                        model='gemini-2.5-flash',
-                        contents=user_message,
-                        config=types.GenerateContentConfig(
-                            system_instruction="你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理。"
-                        )
+                response = gemini_client.models.generate_content(
+                    model='gemini-2.5-flash',
+                    contents=user_message,
+                    config=types.GenerateContentConfig(
+                        system_instruction="你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理，你的名子叫「腫忠」。"
                     )
-                    # 成功拿回 Gemini 的回答，並在最下面新增備援模型標籤
-                    reply_text = response.text + "\n\n(本訊採用 Gemini 備援語言模型)"
+                )
+                # 成功拿回 Gemini 的回答，並在最下面新增主力模型標籤
+                reply_text = response.text + "\n\n(Gemini-2.5)"
+                
+            except Exception as gemini_error:
+                # 當 Gemini 額度滿了、或是 Google 鬧脾氣時，跳進這裡啟動 GPT 備援
+                print(f"Gemini 呼叫失敗: {str(gemini_error)}。自動切換至 GPT 備援...")
+                
+                # 第二層：自動救援】呼叫 OpenAI GPT (延後初始化，確保平時不浪費資源)
+                try:
+                    openai_key = os.environ.get('OPENAI_API_KEY')
+                    if not openai_key:
+                        raise ValueError("環境變數中找不到 OPENAI_API_KEY")
+                        
+                    openai_client = OpenAI(api_key=openai_key)
                     
-                except Exception as gemini_error:
+                    response = openai_client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {"role": "system", "content": "你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理。"},
+                            {"role": "user", "content": user_message}
+                        ]
+                    )
+                    # 成功拿回 GPT 的回答，並在最下面新增備援模型標籤
+                    reply_text = response.choices[0].message.content + "\n\n(GPT-4.0)"
+                    
+                except Exception as gpt_error:
                     # 萬一兩邊都一起出狀況的極端防錯
-                    reply_text = f"糟糕，兩大 AI 大腦都打結了... (GPT 錯誤: {str(gpt_error)} / Gemini 錯誤: {str(gemini_error)})"
+                    reply_text = f"糟糕，兩大 AI 大腦都打結了... (Gemini 錯誤: {str(gemini_error)} / GPT 錯誤: {str(gpt_error)})"
 
             # 2. 回傳給 LINE
             line_url = "https://api.line.me/v2/bot/message/reply"
