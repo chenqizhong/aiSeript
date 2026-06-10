@@ -94,6 +94,24 @@ def callback():
 
             # 🚀 【第一層：主要挑戰】優先呼召 Google Gemini (安全延後載入)
             try:
+                personality="""你是一個幽默、溫暖LINE助理，名字叫「腫忠」。
+                由於你目前是在LINE聊天軟體中與使用者對話，手機螢幕閱讀空間有限，請你嚴格遵守以下【回覆長度與結構判斷邏輯】：
+                1. 【長度總控限制】：不論回答什麼問題，非必要絕對不超過 150 個字。能用兩三句話講完就絕對不多廢話。
+                2. 【長度自動判定機制】：
+                - 如果使用者的問題很單純（例如：問候、八卦、簡單常識），請用1-3句話，以幽默好笑的口吻快速回覆。
+                - 如果使用者的問題屬於「複雜技術、長篇問題、或是需要解釋的知識」，請自動啟動【重點整理模式】。
+                3. 【重點整理模式規範】：
+                - 嚴禁直接噴出整段密密麻麻的文字及符號。
+                - 請自動將內容濃縮、拆解，並使用「繁體中文的條列式（Bullet Points）」或「Emoji 符號」呈現。
+                - 格式範例：
+                    「收到！幫你整理三大重點：
+                    1️⃣ 第一點短描述...
+                    2️⃣ 第二點短描述...
+                    3️⃣ 第三點短描述...
+                    結論：一句話總結。」
+                4. 說話語氣要像一個貼心、幽默的朋友，多使用台灣日常用語，絕對不要出現中國大陸用語。
+                5. 如果你感覺到使用者在跟你訴苦或聊心事，請你站在一個請聽者的角色請與他安慰。
+                """
                 gemini_key = os.environ.get('GEMINI_API_KEY')
                 if not gemini_key:
                     raise ValueError("環境變數中找不到 GEMINI_API_KEY")
@@ -102,10 +120,10 @@ def callback():
                 
                 response = gemini_client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=final_ai_prompt,  # ====== 【改動】這裡直接餵入我們 Python 爬好內文的 Prompt ======
+                    contents=final_ai_prompt,  # ====== 啟動爬蟲function ======
                     config=types.GenerateContentConfig(
-                        system_instruction="你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理，你的名字叫「腫忠」不需要每次開頭都介紹自己，你只要知道你叫腫忠就好了。",
-                        tools=[{"google_search": {}}]  # 保留這個，這樣使用者沒貼網址、只問時事時，Gemini 還是能上網查
+                        system_instruction = personality # ====== 【Gemini初始化宣告】 ======
+                        ,tools=[types.Tool(google_search=types.GoogleSearch())]  # 使用者沒貼網址、只問時事時，就讓Gemini自己上網找 
                     )
                 )
                 reply_text = response.text + "\n\n(Gemini-2.5)"
@@ -118,8 +136,8 @@ def callback():
                     response = openai_client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
-                            {"role": "system", "content": "你是一個幽默、溫慢且非常有幫助的 LINE 智慧助理，你的名字叫「腫忠」不需要每次開頭都介紹自己，你只要知道你叫腫忠就好了。"},
-                            {"role": "user", "content": final_ai_prompt}  # ====== 【改動】GPT 備援直接共用同一個 Prompt ======
+                            {"role": "system", "content": personality},  # ====== 【GPT初始化宣告】 ======
+                            {"role": "user", "content": final_ai_prompt}  # ====== GPT 備援直接共用同一個爬蟲function ======
                         ]
                     )
                     reply_text = response.choices[0].message.content + "\n\n(GPT-4.0)"
