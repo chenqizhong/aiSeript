@@ -14,21 +14,36 @@ LINE_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 # 唯獨保留 OpenAI 的初始化
 openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
-# 網頁文字爬蟲函數
+# =====================================================================
+# ====== 【精準瘦身型網頁爬蟲函數】 =================================
+# ====== 只抓取 p 標籤或文章主體，強制限流 1200 字，全力省流量 ======
+# =====================================================================
 def fetch_web_content(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         response = requests.get(url, headers=headers, timeout=8)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            for script in soup(["script", "style", "nav", "footer"]):
-                script.extract()
-            text = soup.get_text(separator="\n", strip=True)
-            return text[:2500]  # 限制字數，避免 token 超量
+            
+            # 優先尋找標準的文章主體區塊（常見於現代新聞、技術部落格）
+            main_content = soup.find(['article', 'main'])
+            if main_content:
+                paragraphs = main_content.find_all('p')
+            else:
+                # 如果網站寫法比較傳統，就抓取全網頁的所有段落 p 標籤
+                paragraphs = soup.find_all('p')
+            
+            # 取出每個段落的純文字，並自動剔除空白行
+            text_list = [p.get_text(strip=True) for p in paragraphs if p.get_text(strip=True)]
+            cleaned_text = "\n".join(text_list)
+            
+            # 嚴格限制只回傳前 1200 個字，防止 token 爆炸觸發 429
+            return cleaned_text[:1200]
+            
         return f"[系統通知：無法讀取該網頁，錯誤代碼 {response.status_code}]"
     except Exception as e:
         return f"[系統通知：網頁讀取失敗，原因 {str(e)}]"
-
+# =====================================================================
 
 @app.route("/", methods=['GET'])
 def index():
