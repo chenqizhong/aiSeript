@@ -1,7 +1,7 @@
 import os
 import requests
-import re  # ====== 【新功能：新增導入】引入正規表達式來偵測網址 ======
-from bs4 import BeautifulSoup  # ====== 【新功能：新增導入】引入爬蟲解析庫 ======
+import re  
+from bs4 import BeautifulSoup  
 from flask import Flask, request, abort
 from openai import OpenAI
 from google import genai
@@ -11,22 +11,16 @@ app = Flask(__name__)
 
 LINE_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 
-# 【注意】這裡絕對不能有 gemini_client = genai.Client(...) ！！！
-# 唯獨保留 OpenAI 的初始化（若其套件允許空 key 傳入）
+# 唯獨保留 OpenAI 的初始化
 openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
-
-# =====================================================================
-# ====== 【新功能：網頁文字爬蟲函數】 ===================================
-# ====== 專門用來抓取使用者貼的網址，萃取純文字供 GPT 備援使用 ======
-# =====================================================================
+# 網頁文字爬蟲函數
 def fetch_web_content(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
         response = requests.get(url, headers=headers, timeout=8)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
-            # 剃除雜訊標籤
             for script in soup(["script", "style", "nav", "footer"]):
                 script.extract()
             text = soup.get_text(separator="\n", strip=True)
@@ -34,7 +28,6 @@ def fetch_web_content(url):
         return f"[系統通知：無法讀取該網頁，錯誤代碼 {response.status_code}]"
     except Exception as e:
         return f"[系統通知：網頁讀取失敗，原因 {str(e)}]"
-# =====================================================================
 
 
 @app.route("/", methods=['GET'])
@@ -53,7 +46,7 @@ def callback():
             reply_token = event['replyToken']
             raw_message = event['message']['text'].strip()
             
-            # --- 🤖 關鍵過濾機制 (支援大寫與多種 Tag 標記) ---
+            # --- 🤖 關鍵過濾機制 ---
             trigger_words = ("@ai", "@腫忠ai機器人", "@腫忠", "@腫忠ai")
             has_trigger = any(raw_message.lower().startswith(word) for word in trigger_words)
             
@@ -72,25 +65,33 @@ def callback():
 
             reply_text = ""
 
-            # 🚀 【第一層：主要挑戰】優先呼叫 Google Gemini (安全延後載入)
+            # =====================================================================
+            # ====== 【新架構優化：雙核心共用預爬蟲機制】 =============================
+            # ====== 不管後面是走 Gemini 還是 GPT，只要有網址，Python 都在這裡先爬好 ======
+            # =====================================================================
+            final_ai_prompt = user_message
+            urls = re.findall(r'https?://[^\s]+', user_message)
+            if urls:
+                print(f"[系統進度] 偵測到網址，正在預先爬取: {urls[0]}")
+                web_text = fetch_web_content(urls[0])
+                final_ai_prompt = f"【使用者提問】：{user_message}\n\n【附帶網頁內文（參考資料）】：\n{web_text}"
+            # =====================================================================
+
+            # 🚀 【第一層：主要挑戰】優先呼召 Google Gemini (安全延後載入)
             try:
                 gemini_key = os.environ.get('GEMINI_API_KEY')
                 if not gemini_key:
                     raise ValueError("環境變數中找不到 GEMINI_API_KEY")
                 
-                # 正確的作法：只有在真的要處理訊息時，才在 function 內部初始化！
                 gemini_client = genai.Client(api_key=gemini_key)
                 
                 response = gemini_client.models.generate_content(
                     model='gemini-2.5-flash',
-                    contents=user_message,
-                    # ====== 【新功能：Gemini 聯網設定】 ======
-                    # 這裡直接加上了 tools 參數，一秒啟動 Google 官方搜尋功能！
+                    contents=final_ai_prompt,  # ====== 【改動】這裡直接餵入我們 Python 爬好內文的 Prompt ======
                     config=types.GenerateContentConfig(
                         system_instruction="你是一個幽默、溫暖且非常有幫助的 LINE 智慧助理，你的名字叫「腫忠」不需要每次開頭都介紹自己，你只要知道你叫腫忠就好了。",
-                        tools=[{"google_search": {}}]
+                        tools=[{"google_search": {}}]  # 保留這個，這樣使用者沒貼網址、只問時事時，Gemini 還是能上網查
                     )
-                    # ========================================
                 )
                 reply_text = response.text + "\n\n(Gemini-2.5)"
                 
@@ -99,20 +100,11 @@ def callback():
                 
                 # 🛠️ 【第二層：自動救援】呼叫 OpenAI GPT
                 try:
-                    # ====== 【新功能：GPT 貼網址讀取增強】 ======
-                    # 如果 Gemini 掛了換 GPT 上場，我們檢查使用者有沒有貼網址。如果有，爬蟲會先去咬內文
-                    gpt_user_content = user_message
-                    urls = re.findall(r'https?://[^\s]+', user_message)
-                    if urls:
-                        web_text = fetch_web_content(urls[0])
-                        gpt_user_content = f"【使用者提問】：{user_message}\n\n【附帶網頁內文（參考資料）】：\n{web_text}"
-                    # ==========================================
-
                     response = openai_client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
                             {"role": "system", "content": "你是一個幽默、溫慢且非常有幫助的 LINE 智慧助理，你的名字叫「腫忠」不需要每次開頭都介紹自己，你只要知道你叫腫忠就好了。"},
-                            {"role": "user", "content": gpt_user_content}  # ====== 【新功能改動：帶入可能含有網頁內容的 prompt】 ======
+                            {"role": "user", "content": final_ai_prompt}  # ====== 【改動】GPT 備援直接共用同一個 Prompt ======
                         ]
                     )
                     reply_text = response.choices[0].message.content + "\n\n(GPT-4.0)"
