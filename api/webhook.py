@@ -197,8 +197,8 @@ def callback():
                     redis_client.rpush(session_id, f"User: {user_message}")
                     redis_client.rpush(session_id, f"AI: {clean_reply}")
                     
-                    # 嚴格限制只保留最後 100 筆，舊的自動擠出去
-                    redis_client.ltrim(session_id, -100, -1)
+                    # 嚴格限制只保留最後 20 筆，舊的自動擠出去
+                    redis_client.ltrim(session_id, -20, -1)
                     
                     # 設定 24 小時（86400秒）定時炸彈，一天沒聊天自動清空
                     redis_client.expire(session_id, 86400)
