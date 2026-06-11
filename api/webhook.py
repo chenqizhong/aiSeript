@@ -57,7 +57,7 @@ def callback():
         return 'OK'
 
     for event in body['events']:
-        if event.get('type') == 'message' and event['message'].get('type'] == 'text':
+        if event.get('type') == 'message' and event['message'].get('type') == 'text':
             reply_token = event['replyToken']
             raw_message = event['message']['text'].strip()
             
