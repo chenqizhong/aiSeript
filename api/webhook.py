@@ -1,7 +1,7 @@
 import os
 import requests
 import re 
-import redis  # 🌟 引入傳統正宗 Redis 驅動
+import redis  # 引入傳統正宗 Redis 驅動
 from bs4 import BeautifulSoup 
 from flask import Flask, request, abort
 from openai import OpenAI
@@ -15,10 +15,9 @@ LINE_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 # 1. 初始化 OpenAI
 openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
-# 2. 🌟 初始化 Redis（從環境變數讀取你剛才拿到的 rediss:// 字串）
+# 2. 初始化 Redis（從環境變數讀取你剛才拿到的 rediss:// 字串）
 REDIS_URL = os.environ.get('REDIS_URL')
 if REDIS_URL:
-    # decode_responses=True 非常關鍵！確保撈出來的是中文字串，而不是二進位 bytes
     redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 else:
     redis_client = None
@@ -58,7 +57,7 @@ def callback():
         return 'OK'
 
     for event in body['events']:
-        if event.get('type') == 'message' and event['message'].get('type') == 'text':
+        if event.get('type') == 'message' and event['message'].get('type'] == 'text':
             reply_token = event['replyToken']
             raw_message = event['message']['text'].strip()
             
@@ -79,12 +78,11 @@ def callback():
                 user_message = "嗨！點名我做什麼呢？有什麼我可以幫忙的？"
 
             # =====================================================================
-            # ====== 🧠 【新防線：動態辨識 USER 或 GROUP 並撈取歷史記憶】 ======
+            # ====== 🧠 【動態辨識 USER 或 GROUP 並撈取歷史記憶】 ======
             # =====================================================================
             session_id = "default_session"
             source = event.get('source', {})
             
-            # 依照 LINE 的來源型態，動態分抽屜存取
             if source.get('type') == 'group':
                 session_id = f"group:{source.get('groupId')}"
             elif source.get('type') == 'room':
@@ -92,28 +90,25 @@ def callback():
             else:
                 session_id = f"user:{source.get('userId')}"
 
-            # 去 Redis 撈取該對話專屬的歷史紀錄
             history_text = ""
             if redis_client:
                 try:
                     chat_history = redis_client.lrange(session_id, 0, -1)
                     if chat_history:
                         history_text = "\n".join(chat_history)
-                except Exception as redis_err:
-                   print(f"[Redis 讀取失敗]: {redis_err}")
+                except Exception as redis_err:  # 🌟 已修正：不蓋掉全域 re 模組
+                    print(f"[Redis 讀取失敗]: {redis_err}")
 
             # =====================================================================
             # ====== 🤖 【建構大腦 Prompt：完美融合歷史、目前問題、網頁爬蟲】 ======
             # =====================================================================
             prompt_parts = []
             
-            # 如果有歷史記憶，當作前情提要餵給 AI
             if history_text:
                 prompt_parts.append(f"【前情提要（這是你們過去的對話歷史，請作為上下文參考）】:\n{history_text}\n")
             
             prompt_parts.append(f"【最新使用者提問】: {user_message}")
             
-            # 檢查是否有網址需要預爬
             urls = re.findall(r'https?://[^\s]+', user_message)
             if urls:
                 print(f"[系統進度] 偵測到網址，正在預先爬取: {urls[0]}")
@@ -127,7 +122,6 @@ def callback():
 
             # 🚀 【第一層】優先呼叫 Google Gemini
             try:
-                # 靠左對齊的乾淨角色設定字串
                 personality="""你是一個幽默、溫暖的 LINE 助理，名字叫「腫忠」。
                 由於在 LINE 軟體中對話，手機螢幕空間有限，請嚴格遵守以下規則：
                 1.【長度與口吻】：
@@ -154,13 +148,24 @@ def callback():
                 
                 gemini_client = genai.Client(api_key=gemini_key)
                 
+                # 🛠️ ====== 【核心優化：資管節流型動態搜尋過濾】 ======
+                tools_list = None
+                search_keywords = ["查", "搜尋", "網頁", "天氣", "新聞", "股價", "推薦", "什麼是", "誰是", "最新", "幾號", "今天", "明天"]
+                
+                # 只有當使用者的文字中含有特定搜尋關鍵字，才允許開起 Google 搜尋功能
+                if any(kw in user_message for kw in search_keywords):
+                    print(f"[資源控制] 偵測到連網需求關鍵字，為本次請求解鎖 Google Search 工具。")
+                    tools_list = [types.Tool(google_search=types.GoogleSearch())]
+                else:
+                    print(f"[資源控制] 純聊天或翻閱記憶，保持離線文字模式（不消耗連網次數）。")
+                # ====================================================
+
                 response = gemini_client.models.generate_content(
                     model='gemini-2.5-flash',
                     contents=final_ai_prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=personality,
-                        # 🌟 修正：使用官方最新強型別 Google Search 宣告
-                        tools=[types.Tool(google_search=types.GoogleSearch())]
+                        tools=tools_list  # 🌟 帶入動態決策後的工具清單
                     )
                 )
                 reply_text = response.text + "\n\n(Gemini-2.5)"
@@ -183,21 +188,19 @@ def callback():
                     reply_text = f"糟糕，兩大 AI 大腦都打結了... (Gemini 錯誤: {str(gemini_error)} / GPT 錯誤: {str(gpt_error)})"
 
             # =====================================================================
-            # ====== 🧠 【新防線：AI 回覆成功後，將對話寫入 Redis 記憶】 ======
+            # ====== 🧠 【AI 回覆成功後，將對話寫入 Redis 記憶】 ======
             # =====================================================================
             if redis_client and ("錯誤" not in reply_text and "大腦都打結" not in reply_text):
                 try:
-                    # 去除後綴浮水印，維持歷史紀錄的乾淨度
                     clean_reply = reply_text.replace("\n\n(Gemini-2.5)", "").replace("\n\n(GPT-4.0)", "")
                     
-                    # 將提問與回答塞入對應的抽屜
                     redis_client.rpush(session_id, f"User: {user_message}")
                     redis_client.rpush(session_id, f"AI: {clean_reply}")
                     
-                    # 🌟 核心卡控：嚴格限制只保留最後 100 筆，舊的自動擠出去，容量永不爆炸！
+                    # 嚴格限制只保留最後 100 筆，舊的自動擠出去
                     redis_client.ltrim(session_id, -100, -1)
                     
-                    # 設定 24 小時（86400秒）定時炸彈，一天沒聊天自動清空，精實不佔空間
+                    # 設定 24 小時（86400秒）定時炸彈，一天沒聊天自動清空
                     redis_client.expire(session_id, 86400)
                 except Exception as we:
                     print(f"[Redis 寫入失敗]: {we}")
