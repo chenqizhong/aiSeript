@@ -99,8 +99,8 @@ def callback():
                     chat_history = redis_client.lrange(session_id, 0, -1)
                     if chat_history:
                         history_text = "\n".join(chat_history)
-                except Exception as re:
-                    print(f"[Redis 讀取失敗]: {re}")
+                except Exception as redis_err:
+                   print(f"[Redis 讀取失敗]: {redis_err}")
 
             # =====================================================================
             # ====== 🤖 【建構大腦 Prompt：完美融合歷史、目前問題、網頁爬蟲】 ======
