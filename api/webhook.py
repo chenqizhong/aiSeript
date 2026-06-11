@@ -1,7 +1,7 @@
 import os
 import requests
 import re 
-import redis  # 引入傳統正宗 Redis 驅動
+import redis  # 引入Redis 驅動
 from bs4 import BeautifulSoup 
 from flask import Flask, request, abort
 from openai import OpenAI
@@ -15,7 +15,7 @@ LINE_ACCESS_TOKEN = os.environ.get('LINE_CHANNEL_ACCESS_TOKEN')
 # 1. 初始化 OpenAI
 openai_client = OpenAI(api_key=os.environ.get('OPENAI_API_KEY'))
 
-# 2. 初始化 Redis（從環境變數讀取你剛才拿到的 rediss:// 字串）
+# 2. 初始化 Redis（從環境變數讀取 rediss://）
 REDIS_URL = os.environ.get('REDIS_URL')
 if REDIS_URL:
     redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
@@ -24,7 +24,7 @@ else:
     print("[資管警告] 環境變數中找不到 REDIS_URL，機器人將在「無記憶模式」下運作！")
 
 
-# ====== 【精準瘦身型網頁爬蟲函數】 ======
+# ====== 【頁爬蟲函數】 ======
 def fetch_web_content(url):
     try:
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -61,7 +61,7 @@ def callback():
             reply_token = event['replyToken']
             raw_message = event['message']['text'].strip()
             
-            # --- 🤖 關鍵過濾機制 ---
+            # --- 入口關鍵過濾機制 ---
             trigger_words = ("@ai", "@腫忠ai機器人", "@腫忠", "@腫忠ai")
             has_trigger = any(raw_message.lower().startswith(word) for word in trigger_words)
             
@@ -75,10 +75,10 @@ def callback():
                     break
             
             if not user_message:
-                user_message = "嗨！點名我做什麼呢？有什麼我可以幫忙的？"
+                user_message = "眨啦！叫你爹幹嘛？"
 
             # =====================================================================
-            # ====== 🧠 【動態辨識 USER 或 GROUP 並撈取歷史記憶】 ======
+            # ====== 【動態辨識 USER 或 GROUP 並撈取歷史記憶】 ======
             # =====================================================================
             session_id = "default_session"
             source = event.get('source', {})
@@ -96,11 +96,11 @@ def callback():
                     chat_history = redis_client.lrange(session_id, 0, -1)
                     if chat_history:
                         history_text = "\n".join(chat_history)
-                except Exception as redis_err:  # 🌟 已修正：不蓋掉全域 re 模組
+                except Exception as redis_err:
                     print(f"[Redis 讀取失敗]: {redis_err}")
 
             # =====================================================================
-            # ====== 🤖 【建構大腦 Prompt：完美融合歷史、目前問題、網頁爬蟲】 ======
+            # ====== 【建構大腦 Prompt：歷史截取、目前問題、網頁爬蟲】 ======
             # =====================================================================
             prompt_parts = []
             
@@ -120,7 +120,7 @@ def callback():
 
             reply_text = ""
 
-            # 🚀 【第一層】優先呼叫 Google Gemini
+            # 【第一層】優先呼叫 Google Gemini
             try:
                 personality="""你是一個幽默、溫暖的 LINE 助理，名字叫「腫忠」。
                 由於在 LINE 軟體中對話，手機螢幕空間有限，請嚴格遵守以下規則：
@@ -148,9 +148,9 @@ def callback():
                 
                 gemini_client = genai.Client(api_key=gemini_key)
                 
-                # 🛠️ ====== 【核心優化：資管節流型動態搜尋過濾】 ======
+                # 🛠️====== 【資管節流型動態搜尋過濾】 ======
                 tools_list = None
-                search_keywords = ["查", "搜尋", "網頁", "天氣", "新聞", "股價", "推薦", "什麼是", "誰是", "最新", "幾號", "今天", "明天"]
+                search_keywords = ["查", "搜尋", "網頁", "天氣", "新聞", "股價", "推薦", "有什麼", "什麼是", "誰是", "最新", "幾號", "今天", "明天", "這週", "這個月", "今年"]
                 
                 # 只有當使用者的文字中含有特定搜尋關鍵字，才允許開起 Google 搜尋功能
                 if any(kw in user_message for kw in search_keywords):
@@ -165,7 +165,7 @@ def callback():
                     contents=final_ai_prompt,
                     config=types.GenerateContentConfig(
                         system_instruction=personality,
-                        tools=tools_list  # 🌟 帶入動態決策後的工具清單
+                        tools=tools_list  #  動態決策後的工具清單
                     )
                 )
                 reply_text = response.text + "\n\n(Gemini-2.5)"
@@ -173,7 +173,7 @@ def callback():
             except Exception as gemini_error:
                 print(f"Gemini 呼叫失敗: {str(gemini_error)}。自動切換至 GPT 備援...")
                 
-                # 🛠️ 【第二層：自動救援】呼叫 OpenAI GPT
+                # 【第二層：自動救援】呼叫 OpenAI GPT
                 try:
                     response = openai_client.chat.completions.create(
                         model="gpt-4o-mini",
@@ -188,7 +188,7 @@ def callback():
                     reply_text = f"糟糕，兩大 AI 大腦都打結了... (Gemini 錯誤: {str(gemini_error)} / GPT 錯誤: {str(gpt_error)})"
 
             # =====================================================================
-            # ====== 🧠 【AI 回覆成功後，將對話寫入 Redis 記憶】 ======
+            # ====== 【AI 回覆成功後，將對話寫入 Redis 記憶】 ======
             # =====================================================================
             if redis_client and ("錯誤" not in reply_text and "大腦都打結" not in reply_text):
                 try:
