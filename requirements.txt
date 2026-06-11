@@ -3,3 +3,4 @@ requests
 openai
 google-genai
 beautifulsoup4
+redis
